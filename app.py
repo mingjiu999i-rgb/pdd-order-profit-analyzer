@@ -30,14 +30,33 @@ EXPORT_DIR = WORKSPACE / "导出结果"
 ARCHIVE_DIR = DB_PATH.parent / "导入归档"
 PENDING_PATH = DB_PATH.parent / "pending_imports.json"
 HOST, PORT = "127.0.0.1", int(os.environ.get("PDD_PORT", "8765"))
-APP_VERSION = "2026.09.15.1"
+APP_VERSION = "2026.09.15.5"
 
 
 def open_page(url):
-    """Open reliably on macOS; webbrowser can silently do nothing from .command files."""
+    """Open a visible Chrome tab on macOS; fall back to the platform browser."""
     try:
         if sys.platform == "darwin":
-            subprocess.run(["open", url], check=True)
+            script = '''
+on run argv
+  set targetURL to item 1 of argv
+  tell application "Google Chrome"
+    activate
+    if (count of windows) = 0 then
+      make new window
+      set URL of active tab of front window to targetURL
+    else
+      tell front window
+        make new tab at end of tabs with properties {URL:targetURL}
+        set active tab index to (count of tabs)
+        set minimized to false
+      end tell
+    end if
+  end tell
+  tell application "System Events" to set frontmost of process "Google Chrome" to true
+end run
+'''
+            subprocess.run(["osascript", "-e", script, "--", url], check=True)
             return
     except Exception:
         pass

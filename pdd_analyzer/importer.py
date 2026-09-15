@@ -79,7 +79,8 @@ def classify_fund(account_type: str, business: str) -> str:
 def shop_from_filename(name: str) -> str | None:
     """从商家自行命名的报表文件识别店铺名；通用平台文件名返回空。"""
     stem = Path(name).stem.strip()
-    if stem.lower().startswith(("pdd-mall-bill-detail", "mall-bill-detail")):
+    lower = stem.lower()
+    if lower.startswith(("pdd-mall-bill-detail", "mall-bill-detail")) or "orders_export" in lower or re.match(r"^[0-9a-f]{20,}(?:_|$)", lower):
         return None
     text = re.sub(r"(?:截至|截止)\d{1,2}月\d{1,2}日", "", stem)
     text = re.sub(r"\d{4}[-年]?\d{1,2}月?", "", text)

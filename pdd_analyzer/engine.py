@@ -19,7 +19,7 @@ def daily_summary(conn: sqlite3.Connection, start_date: str | None = None, end_d
 def combined_summary(days: list[dict]) -> dict | None:
     if not days:
         return None
-    amount_fields = ["original_sales", "effective_sales", "shipped_refund", "other_deductions", "current_net"]
+    amount_fields = ["original_sales", "effective_sales", "shipped_refund", "other_deductions", "current_net", "collection_gap"]
     count_fields = ["order_count", "eligible_orders", "settled_orders"]
     total = {key: round(sum((d.get(key) or 0) for d in days), 2) for key in amount_fields}
     total.update({key: sum(int(d.get(key) or 0) for d in days) for key in count_fields})
@@ -79,6 +79,7 @@ def day_summary(conn: sqlite3.Connection, pay_date: str, shop_name: str | None =
         "effective_sales": yuan(effective), "shipped_refund_orders": len(shipped_ids),
         "successful_aftersales": len(successful), "shipped_refund": yuan(shipped_refund),
         "other_deductions": yuan(other_deductions), "current_net": yuan(current_net),
+        "collection_gap": yuan(effective - current_net),
         "promotion_fee": yuan(promotion), "eligible_orders": len(eligible_ids),
         "settled_orders": len(eligible_ids & positive_ids), "completion_rate": round(completion, 6),
         "net_settlement_rate": None if settlement_rate is None else round(settlement_rate, 6),
