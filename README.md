@@ -26,6 +26,14 @@ python app.py
 
 macOS 也可以双击 `启动.command`。默认地址为 <http://127.0.0.1:8765>。
 
+### Windows
+
+1. 安装 [Python 3.10或更高版本](https://www.python.org/downloads/windows/)，安装时勾选 `Add Python to PATH`。
+2. 下载或克隆本仓库。
+3. 双击 `启动分析.bat`。首次启动会自动创建 `.venv` 并安装依赖，之后会直接打开本地分析页面。
+
+若需要修改项目，可使用 VS Code 打开仓库文件夹。修改后双击 `测试.bat` 运行测试，再重新启动程序查看效果。Windows与macOS使用相同的SQLite数据模型和计算逻辑，但各自的数据文件保存在本机，不随Git同步。
+
 ## 日常使用
 
 1. 把订单、退款和资金报表放入程序自动创建的 `导入报表` 文件夹。

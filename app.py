@@ -255,7 +255,7 @@ if __name__ == "__main__":
         # A previous double-click may have left this client's local service running.
         # In that case the import above has still completed; reopen the existing page
         # instead of making the launcher appear to do nothing.
-        if getattr(exc, "errno", None) in {48, 98}:
+        if getattr(exc, "errno", None) in {48, 98, 10048}:
             print(f"分析程序已在运行，正在打开：{url}")
             open_page(url)
             raise SystemExit(0)
