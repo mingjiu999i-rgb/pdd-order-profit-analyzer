@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>拼多多订单经营分析</title><link rel="icon" href="data:"><link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main>
+  <header><div><h1>订单经营分析</h1><p>所有数据仅保存在本机。按原始成交日查看每批订单的实际结果。</p></div><div class="actions"><button id="exportBtn" class="secondary">导出甲方版 Excel</button><button id="importBtn">导入报表</button></div><input id="files" type="file" multiple accept=".csv,.xlsx,.zip" hidden></header>
+  <section id="notice" class="notice">首次使用请导入订单 CSV、退款 XLSX 和资金 ZIP/CSV。</section>
+  <section class="filter-bar"><label>店铺<select id="shopFilter"><option value="">全部店铺</option></select></label><label>开始日期<input id="startFilter" type="date"></label><label>截止日期<input id="endFilter" type="date"></label><button id="applyFilter">查看统计</button><button id="resetFilter" class="light">恢复全部</button><span id="filterStatus">当前显示全部历史数据</span></section>
+  <section id="pendingPanel" class="panel pending-panel" hidden><div class="panel-title"><h2>需要确认店铺</h2><span>程序无法可靠判断时不会导入，请确认一次</span></div><div id="pending" class="batches"></div></section>
+  <section class="cards" id="cards"></section>
+  <section class="panel"><div class="panel-title"><h2>每日经营主表</h2><span>订单净回款已剔除推广费；点击日期查看逐笔明细</span></div><div class="table-wrap"><table><thead><tr><th>店铺名称</th><th>成交日期</th><th>订单数</th><th>订单成交额</th><th>有效订单销售额</th><th>已发货退款</th><th>其他扣款</th><th>订单净回款</th><th>入账完成率</th><th>净结算率</th><th>状态</th></tr></thead><tbody id="daily"></tbody></table></div></section>
+  <section class="panel"><div class="panel-title"><h2>最近导入</h2><span id="audit"></span></div><div id="batches" class="batches"></div></section>
+</main>
+<dialog id="detail"><div class="dialog-head"><div><h2 id="detailTitle"></h2><p id="detailSummary"></p></div><button onclick="detail.close()">关闭</button></div><div id="issues"></div><div class="tabs"><button data-tab="orders" class="active">订单</button><button data-tab="refunds">退款</button><button data-tab="funds">资金</button></div><div id="detailTable" class="table-wrap"></div></dialog>
+<script src="/app.js"></script>
+</body></html>

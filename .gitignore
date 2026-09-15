@@ -1,0 +1,16 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.venv/
+.data/
+data/
+导入报表/
+导出结果/
+work/
+*.csv
+*.xlsx
+*.xls
+*.zip
+*.db
+*.sqlite*
+.playwright-cli/
