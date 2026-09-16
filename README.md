@@ -30,7 +30,7 @@ macOS 也可以双击 `启动.command`。默认地址为 <http://127.0.0.1:8765>
 
 ### Windows
 
-普通用户请在 GitHub Releases 下载 `拼多多订单经营分析-V5-Windows一键版.zip`，解压后双击 `拼多多订单经营分析.exe`。一键版不需要安装 Python，数据库、导入归档和导出结果只保存在解压后的程序文件夹。
+普通用户请在 GitHub Releases 下载 `PDD-Order-Analyzer-V5-Windows-OneClick.zip`，解压后双击 `拼多多订单经营分析.exe`。一键版不需要安装 Python，数据库、导入归档和导出结果只保存在解压后的程序文件夹。
 
 开发者也可以下载或克隆源代码：
 
