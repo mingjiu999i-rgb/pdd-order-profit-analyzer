@@ -19,10 +19,15 @@ def daily_summary(conn: sqlite3.Connection, start_date: str | None = None, end_d
 def combined_summary(days: list[dict]) -> dict | None:
     if not days:
         return None
-    amount_fields = ["original_sales", "effective_sales", "shipped_refund", "other_deductions", "current_net", "collection_gap"]
+    amount_fields = ["original_sales", "effective_sales", "shipped_refund", "other_deductions", "current_net", "collection_gap", "promotion_fee"]
     count_fields = ["order_count", "eligible_orders", "settled_orders"]
     total = {key: round(sum((d.get(key) or 0) for d in days), 2) for key in amount_fields}
     total.update({key: sum(int(d.get(key) or 0) for d in days) for key in count_fields})
+    total["missing_cost_orders"] = sum(int(d.get("missing_cost_orders") or 0) for d in days)
+    total["ignored_cost_orders"] = sum(int(d.get("ignored_cost_orders") or 0) for d in days)
+    total["product_cost"] = None if total["missing_cost_orders"] else round(sum((d.get("product_cost") or 0) for d in days), 2)
+    total["estimated_profit"] = None if total["missing_cost_orders"] else round(total["effective_sales"] - total["product_cost"] - total["promotion_fee"], 2)
+    total["profit"] = None if total["missing_cost_orders"] else round(total["current_net"] - total["product_cost"] - total["promotion_fee"], 2)
     shops = sorted({d.get("shop_name") or "未识别店铺" for d in days})
     dates = sorted(d["date"] for d in days)
     total.update({
@@ -71,8 +76,32 @@ def day_summary(conn: sqlite3.Connection, pay_date: str, shop_name: str | None =
     unknown = sum(1 for f in funds if f["category"] == "unknown")
     expected_net = effective - shipped_refund - other_deductions
     difference = current_net - expected_net if completion >= 0.999999 else None
-    promotion_rows = [f for f in funds if f["category"] == "promotion_spend"]
-    promotion = -sum(f["income_cents"] + f["expense_cents"] for f in promotion_rows) if promotion_rows else None
+    # 推广报表按实际统计日期归集，避免按资金流水或订单号反推造成跨日偏差。
+    promotion = conn.execute(
+        "SELECT COALESCE(SUM(amount_cents), 0) n FROM promotion_expenses WHERE spend_date=?" + (" AND shop_name=?" if shop_name else ""),
+        (pay_date, shop_name) if shop_name else (pay_date,),
+    ).fetchone()["n"]
+    cost_total = 0
+    missing_cost_orders = 0
+    ignored_cost_orders = 0
+    for order in orders:
+        if order["order_id"] in unshipped_ids:
+            continue
+        sku_key = (order["sku_code"] or "").strip()
+        if not sku_key:
+            ignored_cost_orders += 1
+            continue
+        cost_shop = shop_name or order["shop_name"]
+        row = conn.execute(
+            "SELECT unit_cost_cents FROM sku_costs WHERE shop_name=? AND sku_key=?",
+            (cost_shop, sku_key),
+        ).fetchone()
+        if row is None:
+            missing_cost_orders += 1
+        else:
+            cost_total += row["unit_cost_cents"] * (order["quantity"] or 0)
+    estimated_profit = effective - cost_total - promotion if not missing_cost_orders else None
+    profit = current_net - cost_total - promotion if not missing_cost_orders else None
     return {
         "date": pay_date, "shop_name": shop_name or (orders[0]["shop_name"] if orders else "未识别店铺"), "order_count": len(orders), "original_sales": yuan(original),
         "unshipped_refund_orders": len(unshipped_ids), "unshipped_original": yuan(unshipped_original),
@@ -80,7 +109,10 @@ def day_summary(conn: sqlite3.Connection, pay_date: str, shop_name: str | None =
         "successful_aftersales": len(successful), "shipped_refund": yuan(shipped_refund),
         "other_deductions": yuan(other_deductions), "current_net": yuan(current_net),
         "collection_gap": yuan(effective - current_net),
-        "promotion_fee": yuan(promotion), "eligible_orders": len(eligible_ids),
+        "product_cost": yuan(cost_total) if not missing_cost_orders else None,
+        "missing_cost_orders": missing_cost_orders,
+        "ignored_cost_orders": ignored_cost_orders,
+        "promotion_fee": yuan(promotion), "estimated_profit": yuan(estimated_profit), "profit": yuan(profit), "eligible_orders": len(eligible_ids),
         "settled_orders": len(eligible_ids & positive_ids), "completion_rate": round(completion, 6),
         "net_settlement_rate": None if settlement_rate is None else round(settlement_rate, 6),
         "mature": completion >= 0.999999, "unknown_funds": unknown,
@@ -103,6 +135,8 @@ def day_detail(conn: sqlite3.Connection, pay_date: str, shop_name: str | None = 
     issues = []
     if summary["unknown_funds"]:
         issues.append({"type": "未知资金类型", "count": summary["unknown_funds"]})
+    if summary.get("ignored_cost_orders"):
+        issues.append({"type": "SKU编码为空，成本未计入", "count": summary["ignored_cost_orders"]})
     if summary["settlement_difference"] not in (None, 0.0):
         issues.append({"type": "结算差异", "amount": summary["settlement_difference"]})
     missing = summary["eligible_orders"] - summary["settled_orders"]

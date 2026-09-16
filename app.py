@@ -17,20 +17,24 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+from pdd_analyzer.cost_importer import parse_cost_file, save_cost_items
 from pdd_analyzer.db import connect
 from pdd_analyzer.engine import audit_summary, combined_summaries, daily_summary, day_detail
 from pdd_analyzer.exporter import build_xlsx
 from pdd_analyzer.importer import Importer, ShopRequiredError, sha256
 
-BASE = Path(__file__).resolve().parent
-WORKSPACE = Path(os.environ.get("PDD_WORKSPACE", BASE)).resolve()
+# 打包后，网页资源位于 PyInstaller 的内部资源目录；用户数据必须保存在
+# exe 所在目录，避免程序升级或退出时丢失。
+BASE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)).resolve()
+APP_ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+WORKSPACE = Path(os.environ.get("PDD_WORKSPACE", APP_ROOT)).resolve()
 DB_PATH = Path(os.environ.get("PDD_DB_PATH", WORKSPACE / ".data" / "pdd_analysis.db"))
 INBOX = WORKSPACE / "导入报表"
 EXPORT_DIR = WORKSPACE / "导出结果"
 ARCHIVE_DIR = DB_PATH.parent / "导入归档"
 PENDING_PATH = DB_PATH.parent / "pending_imports.json"
 HOST, PORT = "127.0.0.1", int(os.environ.get("PDD_PORT", "8765"))
-APP_VERSION = "2026.09.15.5"
+APP_VERSION = "2026.09.16.2"
 
 
 def open_page(url):
@@ -110,7 +114,7 @@ def auto_import_first_run():
     """Import inbox reports, prove their shop, then archive successful originals."""
     with connect(DB_PATH) as conn:
         source_dir = INBOX if INBOX.is_dir() else WORKSPACE
-        candidates = [p for p in source_dir.iterdir() if p.is_file() and p.suffix.lower() in {".csv", ".xlsx", ".zip"}]
+        candidates = [p for p in source_dir.iterdir() if p.is_file() and p.suffix.lower() in {".csv", ".xls", ".xlsx", ".zip"}]
         known_hashes = {r[0] for r in conn.execute("SELECT file_sha256 FROM import_batches")}
         manifest_path = DB_PATH.parent / "auto_imported.json"
         try: auto_hashes = set(json.loads(manifest_path.read_text(encoding="utf-8")))
@@ -184,6 +188,34 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/version":
             self.send_json({"version": APP_VERSION})
             return
+        if path == "/api/costs":
+            with connect(DB_PATH) as conn:
+                params = [shop_filter] if shop_filter else []
+                shop_clause = " AND shop_name=?" if shop_filter else ""
+                order_rows = conn.execute(f"""
+                    SELECT shop_name,sku_code,
+                           GROUP_CONCAT(DISTINCT product_id) product_id,
+                           GROUP_CONCAT(DISTINCT sku) sku,
+                           COUNT(*) order_count,COALESCE(SUM(quantity),0) quantity
+                    FROM orders
+                    WHERE TRIM(COALESCE(sku_code,''))<>''{shop_clause}
+                    GROUP BY shop_name,sku_code
+                """, params).fetchall()
+                cost_rows = conn.execute(
+                    "SELECT shop_name,sku_key,unit_cost_cents FROM sku_costs" +
+                    (" WHERE shop_name=?" if shop_filter else ""), params,
+                ).fetchall()
+                costs = {(r["shop_name"], r["sku_code"]): {
+                    **dict(r), "sku_key": r["sku_code"], "unit_cost_cents": None,
+                } for r in order_rows}
+                for row in cost_rows:
+                    key = (row["shop_name"], row["sku_key"])
+                    costs.setdefault(key, {
+                        "shop_name": row["shop_name"], "sku_key": row["sku_key"],
+                        "product_id": None, "sku": None, "order_count": 0, "quantity": 0,
+                    })["unit_cost_cents"] = row["unit_cost_cents"]
+                self.send_json({"costs": [costs[key] for key in sorted(costs)]})
+            return
         if path == "/api/export.xlsx":
             with connect(DB_PATH) as conn:
                 if shop_filter:
@@ -224,6 +256,42 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         request_path = urlparse(self.path).path
+        if request_path == "/api/costs/import":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length > 20 * 1024 * 1024: raise ValueError("SKU 成本表不能超过 20MB")
+                name = unquote(self.headers.get("X-Filename", "SKU成本表.xlsx"))
+                shop = unquote(self.headers.get("X-Shop-Name", "")).strip()
+                if not shop: raise ValueError("请先在店铺筛选中选择一个店铺，再导入 SKU 成本")
+                items = parse_cost_file(name, self.rfile.read(length))
+                with connect(DB_PATH) as conn:
+                    counts = save_cost_items(conn, shop, items)
+                self.send_json({"ok": True, "shop_name": shop, "total": len(items), **counts})
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+            return
+        if request_path == "/api/costs":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                items = json.loads(self.rfile.read(length) or b"[]")
+                if not isinstance(items, list): raise ValueError("成本表格式不正确")
+                with connect(DB_PATH) as conn:
+                    grouped = {}
+                    for item in items:
+                        shop = str(item.get("shop_name", "")).strip()
+                        sku_key = str(item.get("sku_key", "")).strip()
+                        value = item.get("unit_cost")
+                        if not sku_key or value in (None, ""): continue
+                        from decimal import Decimal, ROUND_HALF_UP
+                        cents = int((Decimal(str(value)) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+                        if cents < 0: raise ValueError("单件成本不能为负数")
+                        grouped.setdefault(shop, []).append({"sku_key": sku_key, "unit_cost_cents": cents})
+                    for shop, shop_items in grouped.items():
+                        save_cost_items(conn, shop, shop_items)
+                self.send_json({"ok": True})
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+            return
         if request_path == "/api/assign-shop":
             try:
                 length = int(self.headers.get("Content-Length", "0"))

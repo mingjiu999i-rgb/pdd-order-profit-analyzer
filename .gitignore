@@ -14,3 +14,6 @@ work/
 *.db
 *.sqlite*
 .playwright-cli/
+build/
+dist/
+Windows一键版/

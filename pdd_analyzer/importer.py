@@ -85,7 +85,7 @@ def shop_from_filename(name: str) -> str | None:
     text = re.sub(r"(?:截至|截止)\d{1,2}月\d{1,2}日", "", stem)
     text = re.sub(r"\d{4}[-年]?\d{1,2}月?", "", text)
     text = re.sub(r"\d{1,2}月份?", "", text)
-    text = re.sub(r"(订单|退款|资金明细|资金流水|售后|报表|数据)+$", "", text).strip(" _-（）()")
+    text = re.sub(r"(订单|退款|资金明细|资金流水|售后|推广费|推广报表|推广|报表|数据)+$", "", text).strip(" _-（）()")
     return text or None
 
 
@@ -118,7 +118,7 @@ class Importer:
             results = []
             with zipfile.ZipFile(io.BytesIO(data)) as archive:
                 for info in archive.infolist():
-                    if info.is_dir() or Path(info.filename).suffix.lower() not in {".csv", ".xlsx"}:
+                    if info.is_dir() or Path(info.filename).suffix.lower() not in {".csv", ".xls", ".xlsx"}:
                         continue
                     results.append(self.import_bytes(Path(info.filename).name, archive.read(info), shop_name))
             if not results:
@@ -185,21 +185,38 @@ class Importer:
 
     def _parse(self, name: str, data: bytes):
         suffix = Path(name).suffix.lower()
-        if suffix == ".xlsx":
-            from openpyxl import load_workbook
-            wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
-            ws = wb["售后信息"] if "售后信息" in wb.sheetnames else wb[wb.sheetnames[0]]
-            # 部分拼多多文件错误地把工作表范围声明为 A1:A1。
-            # 重置范围后才能读取实际的全部列和行。
-            if ws.calculate_dimension() == "A1:A1":
-                ws.reset_dimensions()
-            values = ws.iter_rows(values_only=True)
-            headers = [clean(x) for x in next(values)]
-            rows = [normalize(dict(zip(headers, row))) for row in values if any(clean(x) for x in row)]
-            if "售后编号" not in headers or "订单编号" not in headers:
-                raise ValueError("XLSX 不是支持的退款报表")
-            dates = [r.get("申请时间", "") for r in rows if r.get("申请时间")]
-            return "refund", rows, (min(dates, default=None), max(dates, default=None))
+        if suffix in {".xls", ".xlsx"}:
+            table = []
+            if suffix == ".xlsx":
+                from openpyxl import load_workbook
+                wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+                ws = wb["售后信息"] if "售后信息" in wb.sheetnames else wb[wb.sheetnames[0]]
+                if ws.calculate_dimension() == "A1:A1": ws.reset_dimensions()
+                table = [list(row) for row in ws.iter_rows(values_only=True)]
+            else:
+                import xlrd
+                wb = xlrd.open_workbook(file_contents=data)
+                ws = wb.sheet_by_index(0)
+                for row_index in range(ws.nrows):
+                    values = []
+                    for col_index in range(ws.ncols):
+                        cell = ws.cell(row_index, col_index)
+                        if cell.ctype == xlrd.XL_CELL_DATE:
+                            value = xlrd.xldate_as_datetime(cell.value, wb.datemode).strftime("%Y-%m-%d %H:%M:%S")
+                        else:
+                            value = cell.value
+                        values.append(value)
+                    table.append(values)
+            header_idx = next((i for i, row in enumerate(table[:30]) if self._is_supported_header({clean(x) for x in row})), None)
+            if header_idx is None: raise ValueError("找不到退款或推广报表表头")
+            headers = [clean(x) for x in table[header_idx]]
+            rows = [normalize(dict(zip(headers, row))) for row in table[header_idx + 1:] if any(clean(x) for x in row)]
+            if "售后编号" in headers and "订单编号" in headers:
+                dates = [r.get("申请时间", "") for r in rows if r.get("申请时间")]
+                return "refund", rows, (min(dates, default=None), max(dates, default=None))
+            promotion = self._prepare_promotion(rows, set(headers))
+            if promotion: return promotion
+            raise ValueError("Excel 不是支持的退款或推广报表")
         text = decode_csv(data)
         lines = text.splitlines()
         header_idx = next((i for i, line in enumerate(lines[:15]) if ("订单号" in line or "商户订单号" in line) and "," in line), None)
@@ -214,7 +231,36 @@ class Importer:
             rows = [r for r in rows if re.fullmatch(r"\d{6}-\d+", r.get("商户订单号", ""))]
             dates = [r.get("发生时间", "") for r in rows if r.get("发生时间")]
             return "fund", rows, (min(dates, default=None), max(dates, default=None))
+        promotion = self._prepare_promotion(rows, headers)
+        if promotion: return promotion
         raise ValueError("CSV 不是支持的订单或资金报表")
+
+    @staticmethod
+    def _promotion_columns(headers):
+        date_col = next((x for x in ("统计日期", "日期", "消耗日期", "推广日期", "数据日期") if x in headers), None)
+        amount_names = ("消耗金额(元)", "消耗金额（元）", "推广消耗(元)", "推广消耗（元）", "花费(元)", "花费（元）", "实际消耗(元)", "实际消耗（元）", "总花费(元)", "总花费（元）", "消耗", "花费")
+        amount_col = next((x for x in amount_names if x in headers), None)
+        return date_col, amount_col
+
+    @classmethod
+    def _is_supported_header(cls, headers):
+        return ({"售后编号", "订单编号"} <= headers) or all(cls._promotion_columns(headers))
+
+    @classmethod
+    def _prepare_promotion(cls, rows, headers):
+        date_col, amount_col = cls._promotion_columns(headers)
+        if not date_col or not amount_col: return None
+        valid_rows = []
+        for row in rows:
+            text = clean(row.get(date_col, "")).replace("/", "-").replace("年", "-").replace("月", "-").replace("日", "")
+            match = re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2})(?:\s.*)?", text)
+            if not match: continue  # 跳过“总计”等非日期行。
+            row["__promotion_date"] = f"{int(match.group(1)):04d}-{int(match.group(2)):02d}-{int(match.group(3)):02d}"
+            row["__promotion_amount"] = row.get(amount_col, "")
+            if clean(row["__promotion_amount"]): valid_rows.append(row)
+        rows[:] = valid_rows
+        dates = [r["__promotion_date"] for r in rows]
+        return "promotion", rows, (min(dates, default=None), max(dates, default=None))
 
     def _save_order(self, r, batch, raw, sig, ordinal, now):
         order_id = r.get("订单号", "")
@@ -222,15 +268,15 @@ class Importer:
             raise ValueError("订单号为空")
         pay_time = r.get("支付时间") or None
         pay_date = pay_time[:10] if pay_time else None
-        values = (pay_time, pay_date, self.current_shop, cents(r.get("商家实收金额(元)")), r.get("订单状态"), r.get("售后状态"), r.get("商品id"), r.get("商品规格"), int(r.get("商品数量(件)") or 0), batch, now, order_id)
+        values = (pay_time, pay_date, self.current_shop, cents(r.get("商家实收金额(元)")), r.get("订单状态"), r.get("售后状态"), r.get("商品id"), r.get("商品规格"), clean(r.get("商家编码-规格维度")), int(r.get("商品数量(件)") or 0), batch, now, order_id)
         old = self.conn.execute("SELECT * FROM orders WHERE order_id=?", (order_id,)).fetchone()
         if not old:
-            self.conn.execute("INSERT INTO orders(pay_time,pay_date,shop_name,merchant_receipt_cents,order_status,aftersale_status,product_id,sku,quantity,source_batch_id,updated_at,order_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", values)
+            self.conn.execute("INSERT INTO orders(pay_time,pay_date,shop_name,merchant_receipt_cents,order_status,aftersale_status,product_id,sku,sku_code,quantity,source_batch_id,updated_at,order_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", values)
             return "new"
-        comparable = tuple(old[k] for k in ("pay_time","pay_date","shop_name","merchant_receipt_cents","order_status","aftersale_status","product_id","sku","quantity"))
-        if comparable == values[:9]:
+        comparable = tuple(old[k] for k in ("pay_time","pay_date","shop_name","merchant_receipt_cents","order_status","aftersale_status","product_id","sku","sku_code","quantity"))
+        if comparable == values[:10]:
             return "existing"
-        self.conn.execute("UPDATE orders SET pay_time=?,pay_date=?,shop_name=?,merchant_receipt_cents=?,order_status=?,aftersale_status=?,product_id=?,sku=?,quantity=?,source_batch_id=?,updated_at=? WHERE order_id=?", values)
+        self.conn.execute("UPDATE orders SET pay_time=?,pay_date=?,shop_name=?,merchant_receipt_cents=?,order_status=?,aftersale_status=?,product_id=?,sku=?,sku_code=?,quantity=?,source_batch_id=?,updated_at=? WHERE order_id=?", values)
         return "updated"
 
     def _save_refund(self, r, batch, raw, sig, ordinal, now):
@@ -265,4 +311,18 @@ class Importer:
             (key, canonical_sig, ordinal, r.get("商户订单号"), self.current_shop, r.get("发生时间"), cents(r.get("收入金额（+元）")), cents(r.get("支出金额（-元）")), r.get("账务类型"), code, desc, r.get("备注"), category, batch),
         )
         self.conn.execute("INSERT INTO fund_event_sources(fund_event_id,raw_row_id) VALUES(?,?)", (cur.lastrowid, raw))
+        return "new"
+
+    def _save_promotion(self, r, batch, raw, sig, ordinal, now):
+        spend_date = clean(r.get("__promotion_date"))[:10]
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", spend_date):
+            raise ValueError("推广报表的统计日期格式不正确")
+        amount = abs(cents(r.get("__promotion_amount")))
+        key = f"{sig}:{ordinal}"
+        if self.conn.execute("SELECT id FROM promotion_expenses WHERE row_key=?", (key,)).fetchone():
+            return "duplicate"
+        self.conn.execute(
+            "INSERT INTO promotion_expenses(row_key,shop_name,spend_date,amount_cents,source_batch_id) VALUES(?,?,?,?,?)",
+            (key, self.current_shop, spend_date, amount, batch),
+        )
         return "new"

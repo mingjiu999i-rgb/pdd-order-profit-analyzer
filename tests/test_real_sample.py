@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import sqlite3
+import io
 import os
 import tempfile
 import unittest
 from pathlib import Path
 
 from pdd_analyzer.db import connect
+from pdd_analyzer.cost_importer import parse_cost_file, save_cost_items
 from pdd_analyzer.engine import combined_summary, daily_summary, day_summary
 from pdd_analyzer.importer import Importer, ShopRequiredError, classify_fund, shop_from_filename
 
@@ -63,6 +65,34 @@ class RealSampleTest(unittest.TestCase):
         self.conn.execute("INSERT INTO orders(order_id,shop_name,merchant_receipt_cents,source_batch_id,updated_at) VALUES('old-order','老店铺',0,1,'now')")
         with self.assertRaises(ShopRequiredError):
             Importer(self.conn)._detect_shop("pdd-mall-bill-detail.csv", "fund", [{"商户订单号": "new-order"}])
+
+    def test_sku_costs_are_isolated_by_shop(self):
+        for order_id, shop in (("a", "甲店"), ("b", "乙店")):
+            self.conn.execute(
+                """INSERT INTO orders(order_id,pay_time,pay_date,shop_name,merchant_receipt_cents,
+                   order_status,sku_code,quantity,source_batch_id,updated_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (order_id, "2026-09-01 10:00:00", "2026-09-01", shop, 1000,
+                 "已发货", "SAME-SKU", 2, 1, "now"),
+            )
+        save_cost_items(self.conn, "甲店", [{"sku_key": "SAME-SKU", "unit_cost_cents": 100}])
+        save_cost_items(self.conn, "乙店", [{"sku_key": "SAME-SKU", "unit_cost_cents": 300}])
+        self.conn.commit()
+        self.assertEqual(day_summary(self.conn, "2026-09-01", "甲店")["product_cost"], 2.0)
+        self.assertEqual(day_summary(self.conn, "2026-09-01", "乙店")["product_cost"], 6.0)
+
+    def test_cost_file_requires_sku_and_total_cost(self):
+        from openpyxl import Workbook
+
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(["SKU编码", "总成本", "快递费"])
+        sheet.append(["001-A", 12.345, 2])
+        stream = io.BytesIO(); workbook.save(stream)
+        rows = parse_cost_file("成本.xlsx", stream.getvalue())
+        self.assertEqual(rows, [{"sku_key": "001-A", "unit_cost_cents": 1235}])
+        with self.assertRaisesRegex(ValueError, "不支持按零散成本导入"):
+            parse_cost_file("成本.csv", "SKU编码,快递费\n001-A,2\n".encode("utf-8"))
 
 
 if __name__ == "__main__": unittest.main()
