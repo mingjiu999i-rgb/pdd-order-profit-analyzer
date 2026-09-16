@@ -177,11 +177,8 @@ class Importer:
             if len(counts) > 1:
                 detail = "、".join(f"{shop} {count}单" for shop, count in counts.most_common())
                 raise ShopRequiredError(name, report_type, f"同一文件匹配到多个店铺（{detail}），已停止导入")
-        # 文件名只作为新店铺首次导入的便利兜底；后续识别优先使用完整订单号。
-        named = shop_from_filename(name)
-        if named:
-            return named
-        raise ShopRequiredError(name, report_type, "无法通过报表内容或历史订单号确定店铺，请确认一次店铺名称")
+        # 文件名不能作为店铺依据，避免同一批报表因文件名不同被拆成多个店铺。
+        raise ShopRequiredError(name, report_type, "无法通过报表表头或历史订单号确定店铺，请确认本批报表的表头店铺名称")
 
     def _parse(self, name: str, data: bytes):
         suffix = Path(name).suffix.lower()
@@ -207,8 +204,17 @@ class Importer:
                             value = cell.value
                         values.append(value)
                     table.append(values)
-            header_idx = next((i for i, row in enumerate(table[:30]) if self._is_supported_header({clean(x) for x in row})), None)
-            if header_idx is None: raise ValueError("找不到退款或推广报表表头")
+            header_sets = [{clean(x) for x in row} for row in table[:30]]
+            header_idx = next((i for i, headers in enumerate(header_sets) if self._is_supported_header(headers)), None)
+            if header_idx is None:
+                for headers in header_sets:
+                    _, amount_col = self._promotion_columns(headers)
+                    if amount_col and headers.intersection({"商品ID", "商品名称", "推广名称"}):
+                        raise ValueError(
+                            "该文件是推广商品汇总表，缺少逐日“统计日期”列，"
+                            "无法按天归集推广费。请重新导出包含“统计日期”和“消耗金额”的逐日推广报表。"
+                        )
+                raise ValueError("找不到退款或推广报表表头，请确认文件类型和导出格式")
             headers = [clean(x) for x in table[header_idx]]
             rows = [normalize(dict(zip(headers, row))) for row in table[header_idx + 1:] if any(clean(x) for x in row)]
             if "售后编号" in headers and "订单编号" in headers:

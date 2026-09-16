@@ -43,7 +43,7 @@ def build_xlsx(conn: sqlite3.Connection, shop_name: str | None = None, start_dat
     total = combined_summary(days)
     as_of = datetime.now().strftime("%Y-%m-%d %H:%M")
     shops = "、".join(sorted({d["shop_name"] for d in days})) or "未识别店铺"
-    headers = ["店铺名称", "成交日期", "订单数", "订单成交额", "有效订单销售额", "商品成本", "推广费", "预估盈亏", "订单净回款", "当前盈亏", "入账完成率", "入账状态", "说明"]
+    headers = ["店铺名称", "成交日期", "订单数", "订单成交额", "有效订单销售额", "已发货退款", "其他扣款", "商品成本", "推广费", "预估盈亏", "订单净回款", "回款差额", "当前盈亏", "入账完成率", "入账状态", "说明"]
     _title(ws, f"{shops}｜拼多多订单经营分析", f"数据生成时间：{as_of}　口径：按订单原始支付日期归集，金额单位为人民币元", len(headers))
     ws["A3"] = "说明：预估盈亏＝有效订单销售额－商品成本－推广费；当前盈亏＝订单净回款－商品成本－推广费。"
     ws.merge_cells(start_row=3, start_column=1, end_row=3, end_column=len(headers)); ws["A3"].font = Font(size=10, color="5C6872")
@@ -57,16 +57,16 @@ def build_xlsx(conn: sqlite3.Connection, shop_name: str | None = None, start_dat
         if d["unknown_funds"]: notes.append(f"{d['unknown_funds']} 笔资金类型待确认")
         if d["settlement_difference"] not in (None, 0): notes.append(f"结算差异 {d['settlement_difference']:.2f} 元")
         shop_label = f"{d['shop_name']}（累计合计）" if is_total else d["shop_name"]
-        values = [shop_label, d["date"], d["order_count"], d["original_sales"], d["effective_sales"], d.get("product_cost"), d.get("promotion_fee"), d.get("estimated_profit"), d["current_net"], d.get("profit"), d["completion_rate"], status, "；".join(notes)]
+        values = [shop_label, d["date"], d["order_count"], d["original_sales"], d["effective_sales"], d["shipped_refund"], d["other_deductions"], d.get("product_cost"), d.get("promotion_fee"), d.get("estimated_profit"), d["current_net"], d["collection_gap"], d.get("profit"), d["completion_rate"], status, "；".join(notes)]
         for c, value in enumerate(values, 1):
             cell = ws.cell(n, c, value); cell.border = Border(bottom=THIN)
             if is_total:
                 cell.fill = PatternFill("solid", fgColor="E8EEF3"); cell.font = Font(bold=True, color=DARK)
             elif n % 2 == 0: cell.fill = PatternFill("solid", fgColor="FAFBFC")
-        for c in range(4, 11): ws.cell(n, c).number_format = '¥#,##0.00;[Red]-¥#,##0.00'
-        ws.cell(n, 11).number_format = "0.00%"
-        ws.cell(n, 12).fill = PatternFill("solid", fgColor=GREEN if d["mature"] else YELLOW)
-    _finish(ws, [20,13,10,14,17,14,14,14,15,14,13,13,34], "A5")
+        for c in range(4, 14): ws.cell(n, c).number_format = '¥#,##0.00;[Red]-¥#,##0.00'
+        ws.cell(n, 14).number_format = "0.00%"
+        ws.cell(n, 15).fill = PatternFill("solid", fgColor=GREEN if d["mature"] else YELLOW)
+    _finish(ws, [20,13,10,14,17,14,14,14,14,14,15,14,14,13,13,34], "A5")
     _orders(wb, conn, shop_name, start_date, end_date); _refunds(wb, conn, shop_name, start_date, end_date); _funds(wb, conn, shop_name, start_date, end_date); _audit(wb, audit, as_of)
     out = BytesIO(); wb.save(out); return out.getvalue()
 
