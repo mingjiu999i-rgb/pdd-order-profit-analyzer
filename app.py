@@ -18,7 +18,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from pdd_analyzer.cost_importer import parse_cost_file, save_cost_items
-from pdd_analyzer.db import connect
+from pdd_analyzer.db import clear_all_data, connect
 from pdd_analyzer.engine import audit_summary, combined_summaries, daily_summary, day_detail
 from pdd_analyzer.exporter import build_xlsx
 from pdd_analyzer.importer import Importer, ShopRequiredError, sha256
@@ -34,7 +34,7 @@ EXPORT_DIR = WORKSPACE / "导出结果"
 ARCHIVE_DIR = DB_PATH.parent / "导入归档"
 PENDING_PATH = DB_PATH.parent / "pending_imports.json"
 HOST, PORT = "127.0.0.1", int(os.environ.get("PDD_PORT", "8765"))
-APP_VERSION = "2026.09.16.4"
+APP_VERSION = "5.0.0"
 
 
 def open_page(url):
@@ -289,6 +289,24 @@ class Handler(BaseHTTPRequestHandler):
                     for shop, shop_items in grouped.items():
                         save_cost_items(conn, shop, shop_items)
                 self.send_json({"ok": True})
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+            return
+        if request_path == "/api/clear-data":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                payload = json.loads(self.rfile.read(length) or b"{}")
+                if payload.get("confirmation") != "清空全部数据":
+                    raise ValueError("确认文字不正确，未清空任何数据")
+                with connect(DB_PATH) as conn:
+                    counts = clear_all_data(conn)
+                # 清除自动导入标记和待确认队列，使归档中的报表仍可手动重新导入。
+                for path in (PENDING_PATH, DB_PATH.parent / "auto_imported.json"):
+                    try:
+                        path.unlink()
+                    except FileNotFoundError:
+                        pass
+                self.send_json({"ok": True, "cleared": counts})
             except Exception as exc:
                 self.send_json({"ok": False, "error": str(exc)}, 400)
             return

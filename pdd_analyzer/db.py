@@ -106,3 +106,34 @@ def connect(path: str | Path) -> sqlite3.Connection:
         """)
     conn.commit()
     return conn
+
+
+def clear_all_data(conn: sqlite3.Connection) -> dict[str, int]:
+    """清空可重建的业务数据，保留数据库结构。"""
+    tables = (
+        "fund_event_sources",
+        "promotion_expenses",
+        "sku_costs",
+        "fund_events",
+        "refunds",
+        "orders",
+        "raw_rows",
+        "import_batches",
+    )
+    counts = {
+        "orders": conn.execute("SELECT COUNT(*) FROM orders").fetchone()[0],
+        "refunds": conn.execute("SELECT COUNT(*) FROM refunds").fetchone()[0],
+        "fund_events": conn.execute("SELECT COUNT(*) FROM fund_events").fetchone()[0],
+        "promotion_expenses": conn.execute("SELECT COUNT(*) FROM promotion_expenses").fetchone()[0],
+        "sku_costs": conn.execute("SELECT COUNT(*) FROM sku_costs").fetchone()[0],
+        "import_batches": conn.execute("SELECT COUNT(*) FROM import_batches").fetchone()[0],
+    }
+    try:
+        conn.execute("BEGIN")
+        for table in tables:
+            conn.execute(f"DELETE FROM {table}")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    return counts

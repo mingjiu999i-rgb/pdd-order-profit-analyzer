@@ -6,7 +6,7 @@
 </head>
 <body>
 <main>
-  <header><div><h1>订单经营分析</h1><p>所有数据仅保存在本机。按原始成交日查看每批订单的实际结果。</p></div><div class="actions"><button id="exportBtn" class="secondary" title="导出当前筛选店铺和日期范围的经营汇总与明细">导出 Excel</button><button id="importBtn" title="导入订单、退款、资金或推广费报表">导入报表</button></div><input id="files" type="file" multiple accept=".csv,.xls,.xlsx,.zip" hidden><input id="costFiles" type="file" multiple accept=".csv,.xls,.xlsx" hidden></header>
+  <header><div><h1>订单经营分析</h1><p>所有数据仅保存在本机。按原始成交日查看每批订单的实际结果。</p></div><div class="actions"><button id="clearBtn" class="danger-outline" title="清空本机统计数据，保留原始报表归档和导出文件">清空数据</button><button id="exportBtn" class="secondary" title="导出当前筛选店铺和日期范围的经营汇总与明细">导出 Excel</button><button id="importBtn" title="导入订单、退款、资金或推广费报表">导入报表</button></div><input id="files" type="file" multiple accept=".csv,.xls,.xlsx,.zip" hidden><input id="costFiles" type="file" multiple accept=".csv,.xls,.xlsx" hidden></header>
   <section id="notice" class="notice">首次使用请导入订单 CSV、退款 Excel、资金 ZIP/CSV 和推广费 Excel。</section>
   <section class="action-guide"><b>按钮说明：</b><span><b>导入报表</b>用于订单、退款、资金和推广费；</span><span><b>导出 Excel</b>按当前店铺与日期范围导出；</span><span><b>批量导入成本</b>前请先选择店铺，文件需包含“SKU编码”和“总成本”。</span></section>
   <section class="panel date-guide"><div class="panel-title"><div><h2>报表日期怎么选</h2><span>每日经营主表以订单支付日期为基准。退款和资金按订单号回填到原成交日，推广费按店铺与统计日期直接匹配。下载完成后，请将每批报表文件以店铺名称命名。</span></div></div><div class="table-wrap"><table><thead><tr><th>报表</th><th>平台导出选项与日期建议</th><th>系统归属逻辑</th></tr></thead><tbody><tr><td><b>订单报表</b></td><td>导出“对账报表”；选择需要分析的支付日期范围；“订单状态”和“售后状态”均选择“全部”</td><td>支付日期就是每日经营主表的成交日期</td></tr><tr><td><b>退款报表</b></td><td>“退款状态”选择“全部”；日期范围与订单报表起始日一致，截止到今天</td><td>按完整订单号匹配，并回填到该订单原支付日期</td></tr><tr><td><b>资金报表</b></td><td>选择“货款明细”；系统单次最长只支持 31 天，超过 31 天的数据请分两次下载</td><td>按完整订单号匹配，晚到的结算或扣款仍回填到原支付日期</td></tr><tr><td><b>推广费报表</b></td><td>与订单分析范围保持一致，通常截止昨天</td><td>按店铺＋统计日期匹配当天推广费，不按订单号回填</td></tr><tr><td><b>SKU 成本表</b></td><td>不需要日期</td><td>按店铺＋SKU编码长期生效，修改后历史盈亏会重新计算</td></tr></tbody></table></div></section>
@@ -16,6 +16,45 @@
   <section class="panel"><div class="panel-title"><div><h2>SKU 成本表</h2><span>SKU编码取“商家编码-规格维度”。总成本指每售出 1 件该 SKU 的全部成本，不拆分快递费等零散项目。</span></div><div class="actions"><button id="importCosts" title="先选择店铺，再导入包含“SKU编码”和“总成本”的 CSV/XLS/XLSX">批量导入成本</button><button id="saveCosts" class="secondary" title="保存当前表格中手动填写的 SKU 总成本">保存成本</button></div></div><div class="table-wrap"><table><thead><tr><th>店铺名称</th><th>SKU 编码</th><th>已售数量</th><th>单件总成本（元）</th></tr></thead><tbody id="costRows"></tbody></table></div></section>
   <section class="panel"><div class="panel-title"><h2>每日经营主表</h2><span>预估盈亏＝有效订单销售额－商品成本－推广费；当前盈亏按实际净回款计算。点击成交日期可查看逐笔明细。</span></div><div class="table-wrap"><table><thead><tr><th>店铺名称</th><th>成交日期</th><th>订单数</th><th>订单成交额</th><th>有效订单销售额</th><th>已发货退款</th><th>其他扣款</th><th>商品成本</th><th>推广费</th><th>预估盈亏</th><th>订单净回款</th><th>回款差额</th><th>当前盈亏</th><th>入账完成率</th><th>净结算率</th><th>状态</th></tr></thead><tbody id="daily"></tbody></table></div></section>
   <section class="panel"><div class="panel-title"><h2>最近导入</h2><span id="audit"></span></div><div id="batches" class="batches"></div></section>
+  <section class="guide-grid">
+    <details class="guide panel" open>
+      <summary>后续报表维护说明</summary>
+      <div class="guide-body">
+        <h3>首次建立数据</h3>
+        <p>分别导入每个店铺的完整订单 CSV、退款 XLSX、资金明细 ZIP 或 CSV。无法自动识别店铺时，按页面提示确认一次准确店铺名。</p>
+        <h3>日常持续更新</h3>
+        <ol>
+          <li><b>订单报表：</b>导出本月1日至昨天；月初建议补导上个月完整订单。</li>
+          <li><b>资金明细：</b>导出本月1日至昨天，确保已结算、退款和各类扣款持续补齐。</li>
+          <li><b>退款报表：</b>每次滚动导出最近90天，覆盖状态后续变化的售后单。</li>
+          <li><b>推广费报表：</b>与订单分析日期保持一致，通常导出到昨天。</li>
+          <li><b>SKU 成本表：</b>没有日期限制；成本变化时更新，保存后会重新计算历史盈亏。</li>
+        </ol>
+        <p class="tip">可以重复导入有重叠日期的报表。系统保留每次导入批次，并按订单号、售后编号和保守的资金事件规则识别新增、更新与已存在数据。</p>
+      </div>
+    </details>
+    <details class="guide panel">
+      <summary>计算的底层逻辑</summary>
+      <div class="guide-body">
+        <p><b>关联主线：</b>以订单报表的支付日期为统计日期，用完整订单号精确连接订单、退款和资金流水；不会通过订单号中是否包含日期来筛选。</p>
+        <dl>
+          <dt>订单成交额</dt><dd>订单表“商家实收金额”的合计，导入后作为原始成交口径。</dd>
+          <dt>有效订单销售额</dt><dd>订单成交额－未发货且退款成功订单的完整商家实收金额，包含平台优惠券部分。</dd>
+          <dt>已发货退款</dt><dd>退款表判断退款成功及发货阶段，金额取资金表实际发生的订单退款与优惠券退款冲回。</dd>
+          <dt>其他扣款</dt><dd>技术服务费、售后补偿、运费险、小额打款、多多进宝等支出，减去费用返还及申诉补回。</dd>
+          <dt>订单净回款</dt><dd>只合计与订单经营相关的实际资金流水；提现、资金划转、推广充值及推广实际消耗均剔除。</dd>
+          <dt>回款差额</dt><dd>有效订单销售额－订单净回款，用于直观看到退款、扣款或尚未结算造成的差额。</dd>
+          <dt>商品成本</dt><dd>按店铺＋SKU编码匹配单件总成本，再乘以有效订单中的商品数量。</dd>
+          <dt>推广费</dt><dd>按店铺＋推广报表统计日期归入当天，不通过订单号分摊。</dd>
+          <dt>预估盈亏</dt><dd>有效订单销售额－商品成本－推广费。</dd>
+          <dt>当前盈亏</dt><dd>订单净回款－商品成本－推广费，反映当前实际资金口径下的经营结果。</dd>
+          <dt>入账完成率</dt><dd>已有正向结算的应入账订单数 ÷ 应入账订单数；应入账订单排除取消单及未发货全额退款单。</dd>
+          <dt>净结算率</dt><dd>订单净回款 ÷ 有效订单销售额；入账未完成时显示“入账未完成”，提醒数据还会变化。</dd>
+        </dl>
+        <p class="tip">退款报表用于判断售后状态和发货阶段；资金表决定实际入账和扣款金额。退款报表金额不会再次从订单净回款中重复扣除。</p>
+      </div>
+    </details>
+  </section>
 </main>
 <dialog id="detail"><div class="dialog-head"><div><h2 id="detailTitle"></h2><p id="detailSummary"></p></div><button onclick="detail.close()">关闭</button></div><div id="issues"></div><div class="tabs"><button data-tab="orders" class="active">订单</button><button data-tab="refunds">退款</button><button data-tab="funds">资金</button></div><div id="detailTable" class="table-wrap"></div></dialog>
 <script src="/app.js"></script>

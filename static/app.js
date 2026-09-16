@@ -43,4 +43,15 @@ costFiles.onchange=async()=>{
   }
   notice.className='notice ok';notice.textContent=messages.join('；');costFiles.value='';load();
 };
+clearBtn.onclick=async()=>{
+  if(!confirm('确定要清空当前程序内的全部统计数据吗？\n\n订单、退款、资金流水及导入记录都会清空；原始报表归档和已导出的 Excel 会保留。'))return;
+  const confirmation=prompt('为防止误操作，请输入：清空全部数据');
+  if(confirmation===null)return;
+  const r=await fetch('/api/clear-data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmation})});
+  const j=await r.json();
+  if(!r.ok){notice.className='notice error';notice.textContent=j.error;return}
+  shopFilter.value='';startFilter.value='';endFilter.value='';
+  notice.className='notice ok';notice.textContent=`数据已清空：订单 ${j.cleared.orders} 条、退款 ${j.cleared.refunds} 条、资金 ${j.cleared.fund_events} 条、推广费 ${j.cleared.promotion_expenses} 条、SKU 成本 ${j.cleared.sku_costs} 条。原始报表归档和导出文件仍然保留。`;
+  await load();
+};
 load();

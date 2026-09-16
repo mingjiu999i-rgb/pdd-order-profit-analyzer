@@ -18,6 +18,12 @@ REAL_FUNDS_DIR = os.environ.get("PDD_REAL_FUNDS_DIR")
 
 
 class RealSampleTest(unittest.TestCase):
+    def test_marketing_report_header_is_supported(self):
+        headers = {"日期", "成交营销花费(元)", "总营销花费(元)", "推广总花费(元)"}
+        date_col, amount_col = Importer._promotion_columns(headers)
+        self.assertEqual(date_col, "日期")
+        self.assertEqual(amount_col, "总营销花费(元)")
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.conn = connect(Path(self.tmp.name) / "test.db")

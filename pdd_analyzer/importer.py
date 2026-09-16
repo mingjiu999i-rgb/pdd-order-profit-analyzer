@@ -249,7 +249,12 @@ class Importer:
     @staticmethod
     def _promotion_columns(headers):
         date_col = next((x for x in ("统计日期", "日期", "消耗日期", "推广日期", "数据日期") if x in headers), None)
-        amount_names = ("消耗金额(元)", "消耗金额（元）", "推广消耗(元)", "推广消耗（元）", "花费(元)", "花费（元）", "实际消耗(元)", "实际消耗（元）", "总花费(元)", "总花费（元）", "消耗", "花费")
+        amount_names = (
+            "消耗金额(元)", "消耗金额（元）", "推广消耗(元)", "推广消耗（元）",
+            "总营销花费(元)", "总营销花费（元）", "成交营销花费(元)", "成交营销花费（元）",
+            "推广总花费(元)", "推广总花费（元）", "花费(元)", "花费（元）",
+            "实际消耗(元)", "实际消耗（元）", "总花费(元)", "总花费（元）", "消耗", "花费",
+        )
         amount_col = next((x for x in amount_names if x in headers), None)
         return date_col, amount_col
 

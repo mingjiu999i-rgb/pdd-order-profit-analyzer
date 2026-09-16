@@ -1,0 +1,70 @@
+name: 发布 Windows 一键版
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: 获取源代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安装构建依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: 运行测试
+        run: python -m unittest discover -s tests -v
+
+      - name: 生成单文件程序
+        run: >-
+          pyinstaller --noconfirm --clean --onefile
+          --name "拼多多订单经营分析"
+          --add-data "static;static"
+          --hidden-import openpyxl
+          --hidden-import xlrd
+          app.py
+
+      - name: 整理一键版
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "Windows一键版"
+          Copy-Item "dist/拼多多订单经营分析.exe" "Windows一键版/"
+          Copy-Item "Windows一键版使用说明.txt" "Windows一键版/"
+          Compress-Archive -Path "Windows一键版/*" -DestinationPath "拼多多订单经营分析-V5-Windows一键版.zip" -Force
+
+      - name: 保存构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: 拼多多订单经营分析-V5-Windows一键版
+          path: 拼多多订单经营分析-V5-Windows一键版.zip
+
+      - name: 发布到 GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: V5 Windows 一键版
+          body: |
+            ## V5 更新
+            - 增加按店铺维护的 SKU 成本和批量导入。
+            - 增加推广费报表导入、预估盈亏和当前盈亏。
+            - 增加安全的一键清空数据。
+            - 增加后续报表维护说明和完整计算逻辑说明。
+            - 兼容新版订单成交时间及营销花费推广报表。
+
+            下载 `拼多多订单经营分析-V5-Windows一键版.zip`，解压后直接双击 EXE 即可。发布包不包含任何订单、退款、资金、推广费、SKU 成本或客户数据。
+          files: 拼多多订单经营分析-V5-Windows一键版.zip
+          generate_release_notes: true
