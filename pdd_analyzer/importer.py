@@ -224,7 +224,12 @@ class Importer:
             raise ValueError("找不到 CSV 表头")
         rows = [normalize(r) for r in csv.DictReader(io.StringIO("\n".join(lines[header_idx:]))) if any(clean(v) for v in r.values())]
         headers = set(rows[0]) if rows else set()
-        if "订单号" in headers and "支付时间" in headers:
+        if "订单号" in headers and ("支付时间" in headers or "订单成交时间" in headers):
+            # 拼多多新版订单导出把原“支付时间”改名为“订单成交时间”。
+            # 两种模板统一映射到内部支付时间，保证历史和新版报表可混合导入。
+            if "支付时间" not in headers:
+                for row in rows:
+                    row["支付时间"] = row.get("订单成交时间", "")
             dates = [r.get("支付时间", "") for r in rows if r.get("支付时间")]
             return "order", rows, (min(dates, default=None), max(dates, default=None))
         if "商户订单号" in headers and "发生时间" in headers:

@@ -34,7 +34,7 @@ EXPORT_DIR = WORKSPACE / "导出结果"
 ARCHIVE_DIR = DB_PATH.parent / "导入归档"
 PENDING_PATH = DB_PATH.parent / "pending_imports.json"
 HOST, PORT = "127.0.0.1", int(os.environ.get("PDD_PORT", "8765"))
-APP_VERSION = "2026.09.16.2"
+APP_VERSION = "2026.09.16.3"
 
 
 def open_page(url):

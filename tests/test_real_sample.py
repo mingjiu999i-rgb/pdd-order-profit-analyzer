@@ -94,5 +94,18 @@ class RealSampleTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "不支持按零散成本导入"):
             parse_cost_file("成本.csv", "SKU编码,快递费\n001-A,2\n".encode("utf-8"))
 
+    def test_new_order_template_uses_transaction_time(self):
+        data = (
+            "订单号,订单状态,商家实收金额(元),商品数量(件),商品id,商品规格,"
+            "商家编码-规格维度,售后状态,订单成交时间\n"
+            "260915-test,已发货,19.50,2,123,原味两袋,SKU-NEW,无售后,2026-09-15 23:06:56\n"
+        ).encode("utf-8")
+        result = Importer(self.conn).import_bytes("orders_export.csv", data, "测试店铺")
+        order = self.conn.execute("SELECT * FROM orders WHERE order_id='260915-test'").fetchone()
+        self.assertEqual(result["report_type"], "order")
+        self.assertEqual(order["pay_time"], "2026-09-15 23:06:56")
+        self.assertEqual(order["pay_date"], "2026-09-15")
+        self.assertEqual(order["sku_code"], "SKU-NEW")
+
 
 if __name__ == "__main__": unittest.main()
