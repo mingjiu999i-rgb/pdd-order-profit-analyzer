@@ -48,6 +48,7 @@ class ClearDataTest(unittest.TestCase):
                     VALUES ('重新导入.csv','new-hash','order','2026-09-16',0)"""
                 )
                 conn.commit()
+            conn.close()
 
 
 if __name__ == "__main__":
